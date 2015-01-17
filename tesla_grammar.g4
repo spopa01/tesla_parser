@@ -40,7 +40,7 @@ staticAttr_definition: ATTR_NAME ':=' static_reference;
 
 attr_definition: ATTR_NAME ':=' expr;
 
-***attr_constraint: ATTR_NAME OPERATOR static_reference;
+*** attr_constraint: ATTR_NAME OPERATOR static_reference;
 attr_parameter: '[' VALTYPE ']' ATTR_NAME OPERATOR expr;
 
 *** ce_definition : PRED_NAME '(' (attr_declaration (',' attr_declaration)* )? ')'; 

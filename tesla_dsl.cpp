@@ -7,6 +7,8 @@
 #include <string>
 #include <vector>
 
+#include <utility>
+
 namespace qi = boost::spirit::qi;
 namespace ascii = boost::spirit::ascii;
 
@@ -50,7 +52,9 @@ PARAMETER_MAPPING = ATTRIBUTE_NAME "=>" PARAMETER_NAME
 
 ATTRIBUTE_CONSTRAINT = ATTRIBUTE_NAME >> OPERATOR >> STATIC_REFERENCE
 
-PREDICATE = EVENT_NAME >> "(" >> *(PARAMETER_MAPPING | ATTRIBUTE_CONSTRAINT)  >> ")"
+PREDICATE_PARAMETER = PARAMETER_MAPPING | ATTRIBUTE_CONSTRAINT
+
+PREDICATE = EVENT_NAME >> "(" >> -(PREDICATE_PARAMETER % ',')  >> ")"
 
 TRIGGER_PREDICATE = PREDICATE
 
@@ -100,7 +104,7 @@ struct parameter_mapping{
 typedef boost::variant<std::string, int, float, bool> static_value;
 
 struct attribute_constraint{
-  enum op_type{ eq, gt, lt, neq };
+  enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
 
   std::string attribute_name_;
   op_type op_;
@@ -239,7 +243,8 @@ BOOST_FUSION_ADAPT_STRUCT(
 
 //--
 
-std::ostream& operator<<(std::ostream& os, tesla_rule const& r){ return os; }
+//to do...
+std::ostream& operator<<(std::ostream& os, tesla_rule const& r){ return os << "..."; }
 
 //--
 
@@ -273,17 +278,20 @@ struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
 
     parameter_mapping_ = (attribute_name_ >> "=>" >> parameter_name_);
 
-    //enum op_type{ eq, gt, lt, neq };
+    //enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
     op_type_token_.add
-      ("==", attribute_constraint::eq)
-      (">", attribute_constraint::gt)
-      ("<", attribute_constraint::lt)
-      ("!=", attribute_constraint::neq);
+      ("==", attribute_constraint::eq_op)
+      (">", attribute_constraint::gt_op)
+      ("<", attribute_constraint::lt_op)
+      ("!=", attribute_constraint::neq_op)
+      ("&", attribute_constraint::and_op)
+      ("|", attribute_constraint::or_op);
     op_type_ = op_type_token_;
 
     attribute_constraint_ = ( attribute_name_ >> op_type_ >> static_value_ );
 
-    predicate_ = event_name_ >> '(' >> *( parameter_mapping_ | attribute_constraint_ ) >> ')';
+    predicate_parameter_ = parameter_mapping_ | attribute_constraint_;
+    predicate_ = event_name_ >> '(' >> -(predicate_parameter_ % ',') >> ')';
 
     within_reference_ = lexeme["within"] >> uint_ >> lexeme["from"] >> event_name_;
     between_reference_ = lexeme["between"] >> event_name_ >> lexeme["and"] >> event_name_;
@@ -340,6 +348,7 @@ struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
   qi::symbols<char, positive_predicate::selection_policy> selection_policy_token_;
   qi::rule<Iterator, positive_predicate::selection_policy() > selection_policy_;
 
+  qi::rule<Iterator, predicate_parameter(), ascii::space_type> predicate_parameter_;
   qi::rule<Iterator, predicate(), ascii::space_type> predicate_;
   qi::rule<Iterator, positive_predicate(), ascii::space_type> positive_predicate_;
   qi::rule<Iterator, negative_predicate(), ascii::space_type> negative_predicate_;
@@ -355,28 +364,57 @@ struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
 
 typedef std::string::const_iterator iter_t;
 
-int main( /* ... */ ){
-  std::cout << "\n";
+void validate( std::string const& phrase ){
+  std::cout << phrase;
 
+  iter_t iter = phrase.begin();
+  iter_t end = phrase.end();
+
+  ascii::space_type ws;
+  tesla_grammar<iter_t> gram;
+
+  tesla_rule rule;
+  if (phrase_parse(iter, end, gram, ws, rule) && iter == end){
+    std::cout << " - parsing succeeded - result: " << rule << "\n";
+  }else{
+    std::string rest(iter, end);
+    std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
+  }
+}
+
+void interactive(){
   std::string line;
   while (std::getline(std::cin, line)){
     if (line.empty()) break;
-
-    iter_t iter = line.begin();
-    iter_t end = line.end();
-
-    ascii::space_type ws;
-    tesla_grammar<iter_t> gram;
-
-    tesla_rule rule;
-    if (phrase_parse(iter, end, gram, ws, rule) && iter == end){
-      std::cout << "Parsing succeeded - result: " << rule << "\n";
-    }else{
-      std::string rest(iter, end);
-      std::cout << "Parsing failed - stopped at: \" " << rest << "\"\n";
-    }
+    validate(line);
   }
 
   std::cout << "Bye... :-) \n";
+}
+
+void tests(){
+  validate("define A() from B() and each A() within 5000 from B;");
+  validate("define A() from B() and last A() within 5000 from B;");
+  validate("define A() from B() and first A() within 5000 from B;");
+
+  validate("define A() from B() and each C() within 5000 from B and not D() within 2000 from B;");
+  validate("define A() from B() and each C() within 5000 from B and not D() between B and C;");
+
+  validate("define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading() within 500000 from TemperatureReading;");
+
+  //need to finish the parser in order to parse this...
+  //validate("define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( area == $a ) within 500000 from TemperatureReading where Fire.area = Temperature.area");
+}
+
+int main( int argc, char **argv ){
+  std::cout << "\n";
+
+  if(argc == 2 && std::string(argv[1]) == "-interactive"){
+    interactive();
+  }else
+    tests();
+
+  std::cout << "\n";
+
   return 0;
 }

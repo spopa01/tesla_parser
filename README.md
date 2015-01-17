@@ -1,4 +1,16 @@
 # tesla_parser
 This is a C++ (boost::spirit) parser for TESLA "grammar"...
 
-You can find more about it and where it's used form here: https://github.com/deib-polimi/TRex
+TESLA is a formally defined event specification language which provides high expressiveness and increased flexibility in defining complex event processing rules.
+These rules offer content and temporal filters, negations, aggregates and fully customizable policies for event selection and consumption.
+
+Example:
+
+define  Fire( area: string ) 
+from  TemperatureReading( area => $a, temperature > 50 ) 
+      and not RainReading( area == $a ) within 1 hour from TemperatureReading
+where Fire.area = Temperature.area
+
+The original project lacks a C++ parser for the rules, so here I aim to build one.
+
+You can find more about it form here: https://github.com/deib-polimi/TRex
