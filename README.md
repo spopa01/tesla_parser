@@ -9,7 +9,7 @@ Example:
 define  Fire( area: string ) <br />
 from  TemperatureReading( area => $a, temperature > 50 ) <br />
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;and not RainReading( area == $a ) within 1 hour from TemperatureReading <br />
-where Fire.area = Temperature.area
+where Fire.area = TemperatureReading.area
 
 The original project lacks a C++ parser for the rules, so here I aim to build one.
 
