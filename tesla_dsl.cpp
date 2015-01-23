@@ -166,7 +166,7 @@ struct simple_attribute_constraint{
   enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
 
   attribute_name attribute_name_;
-  op_type op_;
+  op_type op_type_;
   static_value static_value_;
 };
 
@@ -174,7 +174,7 @@ BOOST_FUSION_ADAPT_STRUCT(
   simple_attribute_constraint,
 
   (attribute_name, attribute_name_)
-  (simple_attribute_constraint::op_type, op_)
+  (simple_attribute_constraint::op_type, op_type_)
   (static_value, static_value_)
 )
 
@@ -355,65 +355,129 @@ std::ostream& operator<<(std::ostream& os, attribute_declaration const& attr_dcl
 }
 
 std::ostream& operator<<(std::ostream& os, event_definition const& def){
-  os << def.event_name_ << "( ";
+  os << def.event_name_ << "(";
   if( def.attributes_declaration_ ){
     std::vector<attribute_declaration> attributes_declaration = *(def.attributes_declaration_);
     for( int i=0; i < attributes_declaration.size(); ++i )
-      os << attributes_declaration[i] << (i < attributes_declaration.size()-1 ? ", " : "");
+      os << (i==0 ? " " : "") << attributes_declaration[i] << (i < attributes_declaration.size()-1 ? ", " : " ");
   }
-  return os << " )";
+  return os << ")";
 }
 
 //2
 
 std::ostream& operator<<(std::ostream& os, parameter_mapping const& mp){
-  return os << mp.attribute_name_ << "=>" << mp.parameter_name_;
+  return os << mp.attribute_name_ << " => " << mp.parameter_name_;
 }
 
 std::ostream& operator<<(std::ostream& os, simple_attribute_constraint::op_type const& op){
   switch( op ){
-    case simple_attribute_constraint::eq_op: os << "=="; break;
-    case simple_attribute_constraint::gt_op: os << ">"; break;
-    case simple_attribute_constraint::lt_op: os << "<"; break;
-    case simple_attribute_constraint::neq_op: os << "!="; break;
-    case simple_attribute_constraint::and_op: os << "|"; break;
-    case simple_attribute_constraint::or_op: os << "&"; break;
+    case simple_attribute_constraint::eq_op: os << " == "; break;
+    case simple_attribute_constraint::gt_op: os << " > "; break;
+    case simple_attribute_constraint::lt_op: os << " < "; break;
+    case simple_attribute_constraint::neq_op: os << " != "; break;
+    case simple_attribute_constraint::and_op: os << " | "; break;
+    case simple_attribute_constraint::or_op: os << " & "; break;
   }
   return os;
 }
 
 std::ostream& operator<<(std::ostream& os, simple_attribute_constraint const& cnstr){
-  return os << cnstr.attribute_name_ << " " << cnstr.op_ << " " << cnstr.static_value_;
+  return os << cnstr.attribute_name_ << cnstr.op_type_ << cnstr.static_value_;
+}
+
+std::ostream& operator<<(std::ostream& os, expression const& expr){
+  return os << "expr";
+  /*
+  os << expr.first_;
+  for( int i=0; i<expr.rest_.size(); ++i )
+    os << 
+  return os;
+  */
 }
 
 std::ostream& operator<<(std::ostream& os, complex_attribute_constraint const& cnstr){
-  return os << "[***]";
+  os << "[" << cnstr.attribute_type_ << "] " << cnstr.attribute_name_ << cnstr.op_type_ << cnstr.expression_;
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, predicate const& pred){
-  os << pred.event_name_ << "( ";
+  os << pred.event_name_ << "(";
   if( pred.predicate_parameters_ ){
     std::vector< predicate_parameter > predicate_parameters = *(pred.predicate_parameters_);
     for( int i=0; i < predicate_parameters.size(); ++i ){
-      os << predicate_parameters[i] << (i < predicate_parameters.size()-1 ? ", " : "");
+      os << (i==0? " " : "") << predicate_parameters[i] << (i < predicate_parameters.size()-1 ? ", " : " ");
     }
   }
-  return os << " )";
+  return os << ")";
+}
+
+std::ostream& operator<<(std::ostream& os, within_reference const& ref){
+  return os << " within " << ref.delta_ << " from " << ref.event_name_;
+}
+
+std::ostream& operator<<(std::ostream& os, between_reference const& ref){
+  return os << " between " << ref.fst_event_name_ << " and " << ref.snd_event_name_;
+}
+
+std::ostream& operator<<(std::ostream& os, positive_predicate::selection_policy const& policy){
+  switch( policy ){
+    case positive_predicate::each_policy: os << "each "; break;
+    case positive_predicate::first_policy: os << "first "; break;
+    case positive_predicate::last_policy: os << "last "; break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, positive_predicate const& pred){
+  return os << "and " << pred.selection_policy_ << pred.predicate_ << pred.reference_;
+}
+
+std::ostream& operator<<(std::ostream& os, negative_predicate const& pred){
+  return os << "and not " << pred.predicate_ << pred.reference_;
 }
 
 std::ostream& operator<<(std::ostream& os, trigger_pattern_definition const& def){
   os << def.trigger_predicate_;
+  if( def.pattern_predicates_ ){
+    std::vector<pattern_predicate> pattern_predicates = *(def.pattern_predicates_);
+    for( int i=0; i < pattern_predicates.size(); ++i )
+      os << (i==0 ? " " : "") << pattern_predicates[i] << (i < pattern_predicates.size()-1 ? " " : "");
+  }
   return os;
 }
 
-//
+// 3
+
+std::ostream& operator<<(std::ostream& os, simple_attribute_definition const& def){
+  return os << def.attribute_name_ << " ::= " << def.static_value_;
+}
+
+std::ostream& operator<<(std::ostream& os, complex_attribute_definition const& def){
+  return os << def.attribute_name_ << " := " << def.expression_;
+}
+
+// 4
+
+// Rule:
 
 std::ostream& operator<<(std::ostream& os, tesla_rule const& rule){
-  os  << "define " << rule.event_definition_ << "\n"
-      << "where " << rule.trigger_pattern_ << "\n"
-      << ";";
+  os  << "define " << rule.event_definition_
+      << " from " << rule.trigger_pattern_;
+  
+  if( rule.attributes_definition_ ){
+    std::vector< attribute_definition > attributes_definition = *(rule.attributes_definition_);
+    for( int i=0; i < attributes_definition.size(); ++i )
+      os << (i==0 ? " where " : "") << attributes_definition[i] << (i < attributes_definition.size()-1 ? " " : "");
+  }
 
-  return os;
+  if( rule.events_to_consume_ ){
+    std::vector<event_name> events_to_consume = *(rule.events_to_consume_);
+    for( int i=0; i < events_to_consume.size(); ++i )
+      os << (i==0 ? " consuming " : "") << events_to_consume[i] << (i < events_to_consume.size()-1 ? " " : "");
+  }
+
+  return os << ";";
 }
 
 //--
@@ -613,12 +677,10 @@ void validate( std::string const& phrase ){
 
   tesla_rule rule;
   if (phrase_parse(curr, end, gram, ws, rule) && curr == end){
-    std::cout << " - parsing succeeded: \n\n" << rule << "\n\n";
-    //std::cout << " - parsing succeeded\n\n";
+    std::cout << "\n\nParsing succeeded: \n\n" << rule << "\n\n";
   }else{
     //std::string rest(curr, end);
-    //std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
-    std::cout << " - parsing failed\n\n";
+    std::cout << "\n\nParsing failed\n\n";
   }
 }
 
@@ -627,6 +689,7 @@ void interactive(){
   while (std::getline(std::cin, line)){
     if (line.empty()) break;
     validate(line);
+    std::cout << "-----------------\n\n";
   }
 
   std::cout << "Bye... :-) \n";
