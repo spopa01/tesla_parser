@@ -9,127 +9,106 @@
 
 #include <utility>
 
+using std::vector;
+
 namespace qi = boost::spirit::qi;
 namespace ascii = boost::spirit::ascii;
 
-/*  "Pseudo" ... Spirit Qi
+using  boost::optional;
+using boost::variant;
+using std::string;
 
-DEFINE = "define"
-FROM = "from"
-WHERE = "where"
-CONSUMING = "consuming"
-
-WITHIN = "within"
-BETWEEN = "between"
-
-AND = "and"
-NOT = "not"
-
-EACH = "each"
-FIRST = "first"
-LAST = "last"
-
-EVENT_NAME = char_("A-Z") >> *char_("0-9a-zA-Z")
-ATTRIBUTE_NAME = char_("a-z") >> *char_("0-9a-z")
-ATTRIBUTE_TYPE = ( "int" | "float" | "string" | "bool" )
-
-PARAMETER_NAME = ('$' >> ATTRIBUTE_NAME)
-
-INTEGER_REF = uint_
-
-INTEGER = int_
-FLOAT = float_
-STRING = ('"' >> *~char_('"') >> '"')
-BOOL = bool_
-
-STATIC_REFERENCE = ( INTEGER | FLOAT | STRING | BOOL )
-
-ATTRIBUTE_DECLARATION = (ATTRIBUTE_NAME >> ':' >> ATTRIBUTE_TYPE)
-
-EVENT_DEFINITION = EVENT_NAME >> "(" >> *ATTRIBUTE_DECLARATION >> ")"   /// 1
-
-PARAMETER_MAPPING = ATTRIBUTE_NAME "=>" PARAMETER_NAME
-
-ATTRIBUTE_CONSTRAINT = ATTRIBUTE_NAME >> OPERATOR >> STATIC_REFERENCE
-
-PREDICATE_PARAMETER = PARAMETER_MAPPING | ATTRIBUTE_CONSTRAINT
-
-PREDICATE = EVENT_NAME >> "(" >> -(PREDICATE_PARAMETER % ',')  >> ")"
-
-TRIGGER_PREDICATE = PREDICATE
-
-WITHIN_REFERENCE = WITHIN >> INTEGER_REF >> FROM >> EVENT_NAME
-BETWEEN_REFERENCE = BETWEEN >> EVENT_NAME >> AND >> EVENT_NAME
-
-SELECTION_POLICY = (EACH | FIRST | LAST)
-
-POSITIVE_PREDICATE = AND >> SELECTION_POLICY >> PREDICATE >> WITHIN_REFERENCE
-NEGATIVE_PREDCIATE = AND >> NOT >> PREDICATE >> ( WITHIN_REFERENCE | BETWEEN_REFERENCE )
-
-PREDICATES_PATTERN = *(POSITIVE_PREDICATE | NEGATIVE_PREDICATE)
-
-
-TRIGGER_PATTERNS = TRIGGER_PREDICATE >> -PREDICATES_PATTERN           /// 2
-
-
-ATTRIBUTE_DEFINITIONS = ...                                           /// 3
-
-
-CONSUMING_EVENTS = (EVENT_NAME % ',')                                 /// 4
-
-/// FINAL
-RULE = DEFINE >> EVENT_DEFINITION >> FROM >> TRIGGER_PATTERNS >> -(WHERE ATTRIBUTE_DEFININITIONS) >> -(CONSUMING CONSUMING_EVENTS) >> ';'
-
+/*
+Just as a note, here (at the moment) I am only trying to match as much as possible the original grammar,
+but I believe that the grammar requires some refactoring.
 */
 
-//--
+typedef variant<string, int, float, bool> static_value;
 
+typedef std::string event_name;
+typedef std::string attribute_name;
+typedef std::string parameter_name;
+
+// attribute_type = ( "string" | "int" | "float" | "bool" )
+// attribute_declaration = attribute_name >> ':' attribute_type;
 struct attribute_declaration{
   enum attribute_type { string_type, int_type, float_type, bool_type };
 
-  std::string attribute_name_;
+  attribute_name attribute_name_;
   attribute_type attribute_type_;
 };
 
+// event_definition = event_name >> '(' >> -( attribute_declaration % ',' ) >> ')';
 struct event_definition{
-  std::string event_name_;
-  boost::optional<std::vector<attribute_declaration> > attribute_declarations_;
+  event_name event_name_;
+  optional<vector<attribute_declaration> > attributes_declaration_;
 };
 
+// attribute_reference = event_name >> '.' >> attribute_name;
+struct attribute_reference{
+  event_name event_name_;
+  attribute_name attribute_name_;
+};
+
+// parameter_mapping = attribute_name >> "=>" >> parameter_name;
 struct parameter_mapping{
-  std::string attribute_name_;
-  std::string parameter_name_;
+  attribute_name attribute_name_;
+  parameter_name parameter_name_;
 };
 
-typedef boost::variant<std::string, int, float, bool> static_value;
+// parameter_atom = ( attribute_reference | parameter_name | static_value )
+typedef variant< attribute_reference, parameter_name, static_value  > parameter_atom;
 
-struct attribute_constraint{
+struct expr{
+
+};
+
+// within_reference = ( "within" >> uint_ >> "from" >> event_name )
+struct within_reference{
+  unsigned int delta_;
+  event_name event_name_;
+};
+
+// between_reference = ( "between" >> event_name >> "and" >> event_name )
+struct between_reference{
+  event_name fst_event_name_;
+  event_name snd_event_name_;
+};
+
+// predicate_reference = ( within_reference | between_reference )
+typedef variant<within_reference, between_reference> predicate_reference;
+
+// TRIGGER PATTERN DEFINITION SECTION
+
+// op_type = ( "==", ">", "<", "!=", "&", "|" )     !?
+// simple_attribute_constraint = ( atrribute_name >> op_type >> static_value );
+struct simple_attribute_constraint{
   enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
 
-  std::string attribute_name_;
+  attribute_name attribute_name_;
   op_type op_;
   static_value static_value_;
 };
 
-typedef boost::variant<parameter_mapping, attribute_constraint> predicate_parameter;
+// complex_attribute_constraint = ( '[' >> attribute_type >> ']' >> attribute_name >> op_type >> expr )
+struct complex_attribute_constraint{
+  attribute_declaration::attribute_type attribute_type;
+  attribute_name attribute_name_;
+  simple_attribute_constraint::op_type op_type_;
+  expr expr_;
+};
 
+// predicate_parameter = ( parameter_mapping, simple_attribute_constraint | complex_attribute_constraint );
+typedef variant<parameter_mapping, simple_attribute_constraint, complex_attribute_constraint> predicate_parameter;
+
+// predicate = ( event_name >> -( predicate_parameter % ',' ) );
 struct predicate{
-  std::string event_name_;
-  boost::optional<std::vector<predicate_parameter> > predicate_parameters_;
+  event_name event_name_;
+  optional<vector<predicate_parameter> > predicate_parameters_;
 };
 
-struct within_reference{
-  unsigned int delta_;
-  std::string event_name_;
-};
-
-struct between_reference{
-  std::string fst_event_name_;
-  std::string snd_event_name_;
-};
-
-typedef boost::variant<within_reference, between_reference> reference;
-
+// selection_policy = ( "each" | "first" | "last" );
+// positive_predicate = ( "and" >> selection_policy >> predicate >> within_reference );
 struct positive_predicate{
   enum selection_policy { each_policy, first_policy, last_policy };
   selection_policy selection_policy_;
@@ -138,108 +117,57 @@ struct positive_predicate{
   within_reference reference_;
 };
 
+// negatine_predicate = ( "and not" >> predicate >> predicate_reference );
 struct negative_predicate{
   predicate predicate_;
-  reference reference_;
+  predicate_reference reference_;
 };
 
+// predicate_pattern = ( negative_predicate | positive_predicate )
 typedef boost::variant<positive_predicate, negative_predicate> pattern_predicate;
 
-struct trigger_pattern{
+// trigger_pattern_definition = ( predicate >> -( pattern_predicate % ',' ) );
+struct trigger_pattern_definition{
   predicate trigger_predicate_;
-  boost::optional<std::vector<pattern_predicate> > pattern_predicates_;
+  optional<vector<pattern_predicate> > pattern_predicates_;
 };
 
+// ATTRIBUTES DEFINITION SECTION
+
+// simple_attribute_definition = ( attribute_name >> ":=" >> static_value )
+struct simple_attribute_definition{
+  attribute_name attribute_name_;
+  static_value static_value_;
+};
+
+// complex_attribute_definition = ( attribute_name >> ":=" >> expr )
+struct complex_attribute_definition{
+  attribute_name attribute_name_;
+  expr expr_;
+};
+
+// attribute_definition = ( simple_attribute_definition | complex_atrribute_definition )
+typedef variant<simple_attribute_definition, complex_attribute_definition> attribute_definition;
+
+// RULE DEFINITION SECTION
+
+/*
+rule %=   ( "define" >> event_definition )
+     >>   ( "from" >> trigger_pattern_definition )
+     >> - ( "where" >> ( atrributes_definition % ',' ) )
+     >> - ( "consuming" >> ( event_name % ',' ) )
+     >> ';';
+*/
 struct tesla_rule{
   event_definition event_definition_; 
-  trigger_pattern trigger_pattern_;
-  boost::optional<std::string> attribute_definitions_;
-  boost::optional<std::vector<std::string> > consuming_events_;
+  trigger_pattern_definition trigger_pattern_;
+  optional<vector<attribute_definition> > attributes_definition_;
+  optional<vector<event_name> > events_to_consume_;
 };
 
 //--
 
-BOOST_FUSION_ADAPT_STRUCT(
-  attribute_declaration,
-
-  (std::string, attribute_name_)
-  (attribute_declaration::attribute_type, attribute_type_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  event_definition,
-
-  (std::string, event_name_)
-  (boost::optional<std::vector<attribute_declaration> >, attribute_declarations_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  parameter_mapping,
-
-  (std::string, attribute_name_)
-  (std::string, parameter_name_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  attribute_constraint,
-
-  (std::string, attribute_name_)
-  (attribute_constraint::op_type, op_)
-  (static_value, static_value_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  predicate,
-  
-  (std::string, event_name_)
-  (boost::optional<std::vector<predicate_parameter> >, predicate_parameters_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  within_reference,
-
-  (unsigned int, delta_)
-  (std::string, event_name_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  between_reference,
-
-  (std::string, fst_event_name_)
-  (std::string, snd_event_name_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  positive_predicate,
-  
-  (positive_predicate::selection_policy, selection_policy_)
-
-  (predicate, predicate_)
-  (within_reference, reference_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  negative_predicate,
-
-  (predicate, predicate_)
-  (reference, reference_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  trigger_pattern,
-
-  (predicate, trigger_predicate_)
-  (boost::optional<std::vector<pattern_predicate> >, pattern_predicates_)
-)
-
-BOOST_FUSION_ADAPT_STRUCT(
-  tesla_rule,
-
-  (event_definition, event_definition_)
-  (trigger_pattern, trigger_pattern_)
-  (boost::optional<std::string>, attribute_definitions_)
-  (boost::optional<std::vector<std::string> >, consuming_events_)
-)
+// boost fusion stuff
 
 //--
 
@@ -248,11 +176,11 @@ std::ostream& operator<<(std::ostream& os, tesla_rule const& r){ return os << ".
 
 //--
 
-template<typename Iterator>
-struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
+template<typename It>
+struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
   tesla_grammar() : tesla_grammar::base_type(tesla_rule_){
     using namespace qi;
-
+/*
     strlit_ =  ('"' >> *~char_('"') >> '"');
 
     event_name_ = (char_("A-Z") >> *char_("0-9a-zA-Z"));
@@ -278,7 +206,6 @@ struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
 
     parameter_mapping_ = (attribute_name_ >> "=>" >> parameter_name_);
 
-    //enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
     op_type_token_.add
       ("==", attribute_constraint::eq_op)
       (">", attribute_constraint::gt_op)
@@ -320,65 +247,69 @@ struct tesla_grammar : qi::grammar<Iterator, tesla_rule(), ascii::space_type>{
                 >> -( lexeme["where"]     >> attribute_name_    )
                 >> -( lexeme["consuming"] >> consuming_events_  )
                 >> ';';
+*/
   }
+/*
+  qi::rule<It, std::string()> event_name_;
+  qi::rule<It, std::string()> attribute_name_;
+  qi::rule<It, std::string()> parameter_name_;
+  qi::rule<It, std::string()> strlit_;
 
-  qi::rule<Iterator, std::string() > event_name_;
-  qi::rule<Iterator, std::string() > attribute_name_;
-  qi::rule<Iterator, std::string() > parameter_name_;
-  qi::rule<Iterator, std::string() > strlit_;
-
-  qi::rule<Iterator, static_value() > static_value_;
+  qi::rule<It, static_value()> static_value_;
 
   qi::symbols<char, attribute_declaration::attribute_type> type_token_;
-  qi::rule<Iterator, attribute_declaration::attribute_type() > attribute_type_;
+  qi::rule<It, attribute_declaration::attribute_type()> attribute_type_;
 
-  qi::rule<Iterator, attribute_declaration(), ascii::space_type> attribute_declaration_;
+  qi::rule<It, attribute_declaration(), ascii::space_type> attribute_declaration_;
 
-  qi::rule<Iterator, event_definition(), ascii::space_type> event_definition_;
+  qi::rule<It, event_definition(), ascii::space_type> event_definition_;
   
-  qi::rule<Iterator, parameter_mapping(), ascii::space_type> parameter_mapping_;
+  qi::rule<It, parameter_mapping(), ascii::space_type> parameter_mapping_;
   
   qi::symbols<char, attribute_constraint::op_type> op_type_token_;
-  qi::rule<Iterator, attribute_constraint::op_type() > op_type_;
-  qi::rule<Iterator, attribute_constraint(), ascii::space_type> attribute_constraint_;
+  qi::rule<It, attribute_constraint::op_type() > op_type_;
+  qi::rule<It, attribute_constraint(), ascii::space_type> attribute_constraint_;
  
-  qi::rule<Iterator, within_reference(), ascii::space_type> within_reference_;
-  qi::rule<Iterator, between_reference(), ascii::space_type> between_reference_;
+  qi::rule<It, within_reference(), ascii::space_type> within_reference_;
+  qi::rule<It, between_reference(), ascii::space_type> between_reference_;
 
   qi::symbols<char, positive_predicate::selection_policy> selection_policy_token_;
-  qi::rule<Iterator, positive_predicate::selection_policy() > selection_policy_;
+  qi::rule<It, positive_predicate::selection_policy() > selection_policy_;
 
-  qi::rule<Iterator, predicate_parameter(), ascii::space_type> predicate_parameter_;
-  qi::rule<Iterator, predicate(), ascii::space_type> predicate_;
-  qi::rule<Iterator, positive_predicate(), ascii::space_type> positive_predicate_;
-  qi::rule<Iterator, negative_predicate(), ascii::space_type> negative_predicate_;
+  qi::rule<It, predicate_parameter(), ascii::space_type> predicate_parameter_;
+  qi::rule<It, predicate(), ascii::space_type> predicate_;
+  qi::rule<It, positive_predicate(), ascii::space_type> positive_predicate_;
+  qi::rule<It, negative_predicate(), ascii::space_type> negative_predicate_;
 
-  qi::rule<Iterator, trigger_pattern(), ascii::space_type> trigger_pattern_;
+  qi::rule<It, trigger_pattern(), ascii::space_type> trigger_pattern_;
   
-  qi::rule<Iterator, std::vector<std::string>(), ascii::space_type> consuming_events_;
-  
-  qi::rule<Iterator, tesla_rule(), ascii::space_type> tesla_rule_;
+  qi::rule<It, std::vector<std::string>(), ascii::space_type> consuming_events_;
+*/
+  qi::rule<It, tesla_rule(), ascii::space_type> tesla_rule_;
 };
 
-//g++ file.cpp
+// As a requirement you have to have boost installed...
+//Compile: g++ file_name.cpp
 
-typedef std::string::const_iterator iter_t;
+typedef std::string::const_iterator iter;
 
 void validate( std::string const& phrase ){
   std::cout << phrase;
 
-  iter_t iter = phrase.begin();
-  iter_t end = phrase.end();
+  iter curr = phrase.begin();
+  iter end = phrase.end();
 
   ascii::space_type ws;
-  tesla_grammar<iter_t> gram;
+  tesla_grammar<iter> gram;
 
   tesla_rule rule;
-  if (phrase_parse(iter, end, gram, ws, rule) && iter == end){
-    std::cout << " - parsing succeeded - result: " << rule << "\n";
+  if (phrase_parse(curr, end, gram, ws, rule) && curr == end){
+    //std::cout << " - parsing succeeded - result: " << rule << "\n";
+    std::cout << " - parsing succeeded\n";
   }else{
-    std::string rest(iter, end);
-    std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
+    //std::string rest(beg, end);
+    //std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
+    std::cout << " - parsing failed\n";
   }
 }
 
@@ -393,9 +324,10 @@ void interactive(){
 }
 
 void tests(){
-  validate("define A() from B() and each A() within 5000 from B;");
-  validate("define A() from B() and last A() within 5000 from B;");
-  validate("define A() from B() and first A() within 5000 from B;");
+  validate("define A() from B();");
+  validate("define A() from B() and each C() within 5000 from B;");
+  validate("define A() from B() and last C() within 5000 from B;");
+  validate("define A() from B() and first C() within 5000 from B;");
 
   validate("define A() from B() and each C() within 5000 from B and not D() within 2000 from B;");
   validate("define A() from B() and each C() within 5000 from B and not D() between B and C;");
