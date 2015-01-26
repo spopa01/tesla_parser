@@ -13,7 +13,7 @@ namespace qi = boost::spirit::qi;
 namespace ascii = boost::spirit::ascii;
 
 /*
-Just as a note, here (at the moment) I am only trying to match as much as possible the original grammar,
+Just as a note: here (at the moment) I am only trying to match as much as possible the original grammar,
 but I believe that the original grammar requires refactoring / improving.
 */
 
@@ -336,10 +336,85 @@ BOOST_FUSION_ADAPT_STRUCT(
   (boost::optional<std::vector<event_name> >, events_to_consume_)
 )
 
-//--
+//-- I should really use (boost::spirit::)karma...........
 
-//to do...
-std::ostream& operator<<(std::ostream& os, tesla_rule const& r){ return os << "..."; }
+//1
+
+std::ostream& operator<<(std::ostream& os, attribute_declaration::attribute_type const& attr_type){
+  switch( attr_type ){
+    case attribute_declaration::string_type: os << "string"; break;
+    case attribute_declaration::int_type: os << "int"; break;
+    case attribute_declaration::float_type: os << "float"; break;
+    case attribute_declaration::bool_type: os << "bool"; break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, attribute_declaration const& attr_dclr){
+  return os << attr_dclr.attribute_name_ << ": " << attr_dclr.attribute_type_;
+}
+
+std::ostream& operator<<(std::ostream& os, event_definition const& def){
+  os << def.event_name_ << "( ";
+  if( def.attributes_declaration_ ){
+    std::vector<attribute_declaration> attributes_declaration = *(def.attributes_declaration_);
+    for( int i=0; i < attributes_declaration.size(); ++i )
+      os << attributes_declaration[i] << (i < attributes_declaration.size()-1 ? ", " : "");
+  }
+  return os << " )";
+}
+
+//2
+
+std::ostream& operator<<(std::ostream& os, parameter_mapping const& mp){
+  return os << mp.attribute_name_ << "=>" << mp.parameter_name_;
+}
+
+std::ostream& operator<<(std::ostream& os, simple_attribute_constraint::op_type const& op){
+  switch( op ){
+    case simple_attribute_constraint::eq_op: os << "=="; break;
+    case simple_attribute_constraint::gt_op: os << ">"; break;
+    case simple_attribute_constraint::lt_op: os << "<"; break;
+    case simple_attribute_constraint::neq_op: os << "!="; break;
+    case simple_attribute_constraint::and_op: os << "|"; break;
+    case simple_attribute_constraint::or_op: os << "&"; break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, simple_attribute_constraint const& cnstr){
+  return os << cnstr.attribute_name_ << " " << cnstr.op_ << " " << cnstr.static_value_;
+}
+
+std::ostream& operator<<(std::ostream& os, complex_attribute_constraint const& cnstr){
+  return os << "[***]";
+}
+
+std::ostream& operator<<(std::ostream& os, predicate const& pred){
+  os << pred.event_name_ << "( ";
+  if( pred.predicate_parameters_ ){
+    std::vector< predicate_parameter > predicate_parameters = *(pred.predicate_parameters_);
+    for( int i=0; i < predicate_parameters.size(); ++i ){
+      os << predicate_parameters[i] << (i < predicate_parameters.size()-1 ? ", " : "");
+    }
+  }
+  return os << " )";
+}
+
+std::ostream& operator<<(std::ostream& os, trigger_pattern_definition const& def){
+  os << def.trigger_predicate_;
+  return os;
+}
+
+//
+
+std::ostream& operator<<(std::ostream& os, tesla_rule const& rule){
+  os  << "define " << rule.event_definition_ << "\n"
+      << "where " << rule.trigger_pattern_ << "\n"
+      << ";";
+
+  return os;
+}
 
 //--
 
@@ -430,7 +505,7 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     selection_policy_ = selection_policy_token_;
 
     positive_predicate_ = lexeme ["and"] >> selection_policy_ >> predicate_ >> within_reference_;
-    negative_predicate_ = lexeme ["and not"] >> predicate_ >> (within_reference_ | between_reference_);
+    negative_predicate_ = lexeme ["and not"] >> predicate_ >> predicate_reference_;
 
     trigger_pattern_definition_ = predicate_ >> *( positive_predicate_ | negative_predicate_ );
 
@@ -538,8 +613,8 @@ void validate( std::string const& phrase ){
 
   tesla_rule rule;
   if (phrase_parse(curr, end, gram, ws, rule) && curr == end){
-    //std::cout << " - parsing succeeded - result: " << rule << "\n";
-    std::cout << " - parsing succeeded\n\n";
+    std::cout << " - parsing succeeded: \n\n" << rule << "\n\n";
+    //std::cout << " - parsing succeeded\n\n";
   }else{
     //std::string rest(curr, end);
     //std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
