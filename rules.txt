@@ -1,0 +1,11 @@
+define A() from B();
+define A() from B() and each C() within 5000 from B;
+define A() from B() and first C() within 5000 from B;
+define A() from B() and each C() within 5000 from B and not D() within 2000 from B;
+define A() from B() and each C() within 5000 from B and not D() between B and C;
+define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading() within 500000 from TemperatureReading;
+define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 500000 from TemperatureReading where area := $a, temperature ::= 100;
+define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 500000 from TemperatureReading where area := Temperature.area;
+define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and not RainReading( [string] area == $a ) within 500000 from TemperatureReading where area := $a, temperature := 2*$b-5;
+define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and last StartDay() within 20000000 from TemperatureReading and not RainReading( [string] area == $a ) within 500000 from TemperatureReading where area := $a, temperature := AVG( TemperatureReading.temperature() ) between Start and TemperatureReading;
+

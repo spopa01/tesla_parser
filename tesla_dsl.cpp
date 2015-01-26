@@ -2,7 +2,6 @@
 #include <boost/fusion/adapted.hpp>
 #include <boost/optional.hpp>
 #include <boost/variant.hpp>
-#include <boost/spirit/include/phoenix_function.hpp>
 
 #include <iostream>
 #include <string>
@@ -15,7 +14,7 @@ namespace ascii = boost::spirit::ascii;
 
 /*
 Just as a note, here (at the moment) I am only trying to match as much as possible the original grammar,
-but I believe that the grammar requires some refactoring.
+but I believe that the original grammar requires refactoring / improving.
 */
 
 typedef boost::variant<std::string, int, float, bool> static_value;
@@ -86,30 +85,35 @@ struct expression;
 struct term;
 struct factor;
 
-struct aggregate;
-typedef boost::variant< parameter_atom, aggregate, boost::recursive_wrapper<factor>, boost::recursive_wrapper<expression> > atom;
+struct aggregate_atom;
+typedef boost::variant< parameter_atom, boost::recursive_wrapper<aggregate_atom>, 
+                        boost::recursive_wrapper<factor>, boost::recursive_wrapper<expression> > atom;
 
 struct factor{
-  char sign_; // +,-
+  enum sign { pos_sgn, neg_sgn };
+
+  sign sign_; // +,-
   atom atom_;
 };
 
 BOOST_FUSION_ADAPT_STRUCT(
   factor,
 
-  (char, sign_)
+  (factor::sign, sign_)
   (atom, atom_)
 )
 
 struct term{
-  char op_; // *, /, +, -
+  enum op_type { mul_op, div_op, add_op, sub_op };
+
+  op_type op_; // *, /, +, -
   atom atom_;
 };
 
 BOOST_FUSION_ADAPT_STRUCT(
   term,
 
-  (char, op_)
+  (term::op_type, op_)
   (atom, atom_)
 )
 
@@ -194,25 +198,27 @@ BOOST_FUSION_ADAPT_STRUCT(
 // attribute_constraint = simple_attribute_constraint | complex_attribute_constraint;
 typedef boost::variant< simple_attribute_constraint, complex_attribute_constraint > attribute_constraint;
 
-// predicate_parameter = ( parameter_mapping, simple_attribute_constraint | complex_attribute_constraint );
-typedef boost::variant<parameter_mapping, simple_attribute_constraint, complex_attribute_constraint> predicate_parameter;
-
-// aggregate = aggregate_function >> '(' >> attribute_reference >> '(' >> -(attribute_constraint % ',')  >> ')' >> ')';
-struct aggregate{
+// aggregate_atom = aggregation_type >> '(' >> attribute_reference >> '(' >> -(attribute_constraint % ',')  >> ')' >> ')' >> predicate_reference;
+struct aggregate_atom{
   enum aggregation_type{ avg_agg, sum_agg, min_agg, max_agg, count_agg };
 
   aggregation_type aggregation_type_;
   attribute_reference attribute_reference_;
   boost::optional<std::vector<attribute_constraint> > attribute_constraints_;
+  predicate_reference reference_;
 };
 
 BOOST_FUSION_ADAPT_STRUCT(
-  aggregate,
+  aggregate_atom,
 
-  (aggregate::aggregation_type, aggregation_type_)
+  (aggregate_atom::aggregation_type, aggregation_type_)
   (attribute_reference, attribute_reference_)
   (boost::optional<std::vector<attribute_constraint> >, attribute_constraints_)
+  (predicate_reference, reference_)
 )
+
+// predicate_parameter = ( parameter_mapping, simple_attribute_constraint | complex_attribute_constraint );
+typedef boost::variant<parameter_mapping, simple_attribute_constraint, complex_attribute_constraint> predicate_parameter;
 
 // predicate = ( event_name >> -( predicate_parameter % ',' ) );
 struct predicate{
@@ -276,7 +282,7 @@ BOOST_FUSION_ADAPT_STRUCT(
 
 // ATTRIBUTES DEFINITION SECTION
 
-// simple_attribute_definition = ( attribute_name >> ":=" >> static_value )
+// simple_attribute_definition = ( attribute_name >> "::=" >> static_value )
 struct simple_attribute_definition{
   attribute_name attribute_name_;
   static_value static_value_;
@@ -342,6 +348,8 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
   tesla_grammar() : tesla_grammar::base_type(tesla_rule_){
     using namespace qi;
 
+    //-- 1
+
     strlit_ =  ('"' >> *~char_('"') >> '"');
 
     event_name_ = (char_("A-Z") >> *char_("0-9a-zA-Z"));
@@ -350,15 +358,12 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 
     static_value_ = ( strlit_ | int_ | float_ | bool_ );
 
-    //-- 1
-
     type_token_.add
       ("string", attribute_declaration::string_type)
       ("int", attribute_declaration::int_type)
       ("float", attribute_declaration::float_type)
       ("bool", attribute_declaration::bool_type);
     attribute_type_ = type_token_;
-
     attribute_declaration_ = attribute_name_ >> ':' >> attribute_type_;
 
     event_definition_ = event_name_ >> '(' >> -(attribute_declaration_ % ',') >> ')';
@@ -370,28 +375,53 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     attribute_reference_ = (event_name_ >> '.' >> attribute_name_);
 
     parameter_atom_ = ( attribute_reference_ | parameter_name_ | static_value_ );
+    
+    factor_sign_token_.add
+      ("-", factor::neg_sgn)
+      ("+", factor::pos_sgn);
+   factor_sign_ = factor_sign_token_;
 
-    expression_ = term_ >> *( (char_('+') >> term_) | (char_('-') >> term_) );
-    term_ = factor_ >> *( (char_('*') >> factor_) | (char_('/') >> factor_) );
-    factor_ = parameter_atom_ | aggregate_ | '(' >> expression_ >> ')' | (char_('-') >> factor_) | (char_('+') >> factor_);
+    term_mul_div_op_type_token_.add
+      ("*", term::mul_op)
+      ("/", term::div_op);
+    term_mul_div_op_type_ = term_mul_div_op_type_token_;
+    term_add_sub_op_type_token_.add
+      ("+", term::add_op)
+      ("-", term::sub_op);
+    term_add_sub_op_type_ = term_add_sub_op_type_token_;
 
-    op_type_token_.add
+    expression_ = term_ >> *( term_add_sub_op_type_ >> term_ );
+    term_ = factor_ >> *( term_mul_div_op_type_ >> factor_ );
+    factor_ = parameter_atom_ | aggregate_atom_ | '(' >> expression_ >> ')' | (factor_sign_ >> factor_);
+    
+    within_reference_ = lexeme["within"] >> uint_ >> lexeme["from"] >> event_name_;
+    between_reference_ = lexeme["between"] >> event_name_ >> lexeme["and"] >> event_name_;
+
+    predicate_reference_ = ( within_reference_ | between_reference_ );
+
+    constr_op_type_token_.add
       ("==", simple_attribute_constraint::eq_op)
       (">", simple_attribute_constraint::gt_op)
       ("<", simple_attribute_constraint::lt_op)
       ("!=", simple_attribute_constraint::neq_op)
       ("&", simple_attribute_constraint::and_op)
       ("|", simple_attribute_constraint::or_op);
-    op_type_ = op_type_token_;
-    simple_attribute_constraint_ = ( attribute_name_ >> op_type_ >> static_value_ );
-    complex_attribute_constraint_ = ( '[' >> attribute_type_ >> ']' >> attribute_name_ >> op_type_ >> expression_ );
+    constr_op_type_ = constr_op_type_token_;
+    simple_attribute_constraint_ = ( attribute_name_ >> constr_op_type_ >> static_value_ );
+    complex_attribute_constraint_ = ( '[' >> attribute_type_ >> ']' >> attribute_name_ >> constr_op_type_ >> expression_ );
     attribute_constraint_ = ( simple_attribute_constraint_ | complex_attribute_constraint_ );
+
+    agg_type_token_.add
+      ("AVG", aggregate_atom::avg_agg)
+      ("SUM", aggregate_atom::sum_agg)
+      ("MIN", aggregate_atom::min_agg)
+      ("MAX", aggregate_atom::max_agg)
+      ("COUNT", aggregate_atom::count_agg);
+    agg_type_ = agg_type_token_;
+    aggregate_atom_ = (agg_type_ >> '(' >> attribute_reference_ >> '(' >> -( attribute_constraint_ % ',' )  >> ')'  >> ')' >> predicate_reference_ );
 
     predicate_parameter_ = (parameter_mapping_ | simple_attribute_constraint_ | complex_attribute_constraint_);
     predicate_ = event_name_ >> '(' >> -(predicate_parameter_ % ',') >> ')';
-
-    within_reference_ = lexeme["within"] >> uint_ >> lexeme["from"] >> event_name_;
-    between_reference_ = lexeme["between"] >> event_name_ >> lexeme["and"] >> event_name_;
 
     selection_policy_token_.add
       ("each", positive_predicate::each_policy)
@@ -406,7 +436,7 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 
     //-- 3
 
-    simple_attribute_definition_ = ( attribute_name_ >> ":=" >> static_value_ );
+    simple_attribute_definition_ = ( attribute_name_ >> "::=" >> static_value_ );
     complex_attribute_definition_ = ( attribute_name_ >> ":=" >> expression_ );
 
     attribute_definition_ = ( simple_attribute_definition_ | complex_attribute_definition_ );
@@ -435,7 +465,6 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 
   qi::symbols<char, attribute_declaration::attribute_type> type_token_;
   qi::rule<It, attribute_declaration::attribute_type()> attribute_type_;
-
   qi::rule<It, attribute_declaration(), ascii::space_type> attribute_declaration_;
 
   qi::rule<It, event_definition(), ascii::space_type> event_definition_;
@@ -446,20 +475,29 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
   
   qi::rule<It, parameter_atom(), ascii::space_type> parameter_atom_;
 
+  qi::symbols<char, factor::sign> factor_sign_token_;
+  qi::rule<It, factor::sign(), ascii::space_type> factor_sign_;
+  qi::symbols<char, term::op_type> term_mul_div_op_type_token_;
+  qi::symbols<char, term::op_type> term_add_sub_op_type_token_;
+  qi::rule<It, term::op_type(), ascii::space_type> term_mul_div_op_type_;
+  qi::rule<It, term::op_type(), ascii::space_type> term_add_sub_op_type_;
   qi::rule<It, expression(), ascii::space_type> expression_;
   qi::rule<It, expression(), ascii::space_type> term_;
   qi::rule<It, atom(), ascii::space_type> factor_;
 
-  qi::symbols<char, simple_attribute_constraint::op_type> op_type_token_;
-  qi::rule<It, simple_attribute_constraint::op_type() > op_type_;
+  qi::symbols<char, simple_attribute_constraint::op_type> constr_op_type_token_;
+  qi::rule<It, simple_attribute_constraint::op_type() > constr_op_type_;
   qi::rule<It, simple_attribute_constraint(), ascii::space_type> simple_attribute_constraint_;
   qi::rule<It, complex_attribute_constraint(), ascii::space_type> complex_attribute_constraint_;
   qi::rule<It, attribute_constraint(), ascii::space_type> attribute_constraint_;
   
-  qi::rule<It, aggregate(), ascii::space_type> aggregate_;
+  qi::symbols<char, aggregate_atom::aggregation_type> agg_type_token_;
+  qi::rule<It, aggregate_atom::aggregation_type()> agg_type_;
+  qi::rule<It, aggregate_atom(), ascii::space_type> aggregate_atom_;
 
   qi::rule<It, within_reference(), ascii::space_type> within_reference_;
   qi::rule<It, between_reference(), ascii::space_type> between_reference_;
+  qi::rule<It, predicate_reference(), ascii::space_type> predicate_reference_;
 
   qi::symbols<char, positive_predicate::selection_policy> selection_policy_token_;
   qi::rule<It, positive_predicate::selection_policy() > selection_policy_;
@@ -484,7 +522,8 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 };
 
 // As a requirement you have to have boost installed...
-//Compile: g++ file_name.cpp
+//Compile: g++ file_name.cpp or using scons
+//Run: binary < rules_file.txt
 
 typedef std::string::const_iterator iter;
 
@@ -500,11 +539,11 @@ void validate( std::string const& phrase ){
   tesla_rule rule;
   if (phrase_parse(curr, end, gram, ws, rule) && curr == end){
     //std::cout << " - parsing succeeded - result: " << rule << "\n";
-    std::cout << " - parsing succeeded\n";
+    std::cout << " - parsing succeeded\n\n";
   }else{
     //std::string rest(curr, end);
     //std::cout << " - parsing failed - stopped at: \" " << rest << "\"\n";
-    std::cout << " - parsing failed\n";
+    std::cout << " - parsing failed\n\n";
   }
 }
 
@@ -518,29 +557,9 @@ void interactive(){
   std::cout << "Bye... :-) \n";
 }
 
-void tests(){
-  validate("define A() from B();");
-  validate("define A() from B() and each C() within 5000 from B;");
-  validate("define A() from B() and last C() within 5000 from B;");
-  validate("define A() from B() and first C() within 5000 from B;");
-
-  validate("define A() from B() and each C() within 5000 from B and not D() within 2000 from B;");
-  validate("define A() from B() and each C() within 5000 from B and not D() between B and C;");
-
-  validate("define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading() within 500000 from TemperatureReading;");
-
-  validate("define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 500000 from TemperatureReading where area := Temperature.area;");
-}
-
 int main( int argc, char **argv ){
   std::cout << "\n";
-
-  if(argc == 2 && std::string(argv[1]) == "-interactive"){
-    interactive();
-  }else
-    tests();
-
+  interactive();
   std::cout << "\n";
-
   return 0;
 }
