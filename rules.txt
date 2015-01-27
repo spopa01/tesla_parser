@@ -1,13 +1,14 @@
-define A() from B();
-define A() from B() and each C() within 5 secs from B;
-define A() from B() and first C() within 50 millisecs from B;
-define A() from B() and each C() within 5 mins from B and not D() within 2 secs from B;
-define A() from B() and each C() within 5 hours from B and not D() between B and C;
-define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading() within 1 hours from TemperatureReading;
-define Fire( area: string ) from TemperatureReading( area => $a, [int] temperature > 10 * 5 ) and not RainReading() within 2 hours from TemperatureReading;
-define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 5 hours from TemperatureReading where area := $a, temperature ::= 100;
-define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 5 hours from TemperatureReading where area := Temperature.area;
-define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and not RainReading( [string] area == $a ) within 1 days from TemperatureReading where area := $a, temperature := 2 * $b - 5;
-define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and last StartDay() within 1 days from TemperatureReading and not RainReading( [string] area == $a ) within 1 hours from TemperatureReading where area := $a, temperature := AVG( TemperatureReading.temperature() ) between Start and TemperatureReading;
-define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and last StartDay() within 1 days from TemperatureReading and not RainReading( [string] area == $a ) within 1 hours from TemperatureReading where area := $a, temperature := AVG( TemperatureReading.temperature() ) between Start and TemperatureReading consuming TemperatureReading, RainReading;
+assign 1 => A, 2 => B define A() from B();
+assign 1 => A, 2 => B, 3 => C define A() from B() and each C() within 5 secs from B;
+assign 1 => A, 2 => B, 3 => C define A() from B() as X and each C() as Y within 5 secs from B;
+assign 1 => A, 2 => B, 3 => C define A() from B() and first C() within 50 millisecs from B;
+assign 1 => A, 2 => B, 3 => C, 4 => D define A() from B() and each C() within 5 mins from B and not D() within 2 secs from B;
+assign 1 => A, 2 => B, 3 => C, 4 => D define A() from B() and each C() within 5 hours from B and not D() between B and C;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading() within 1 hours from TemperatureReading;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string ) from TemperatureReading( area => $a, [int] temperature > 10 * 5 ) and not RainReading() within 2 hours from TemperatureReading;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 5 hours from TemperatureReading where area := $a, temperature ::= 100;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string ) from TemperatureReading( area => $a, temperature > 50 ) and not RainReading( [string] area == $a ) within 5 hours from TemperatureReading where area := Temperature.area;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and not RainReading( [string] area == $a ) within 1 days from TemperatureReading where area := $a, temperature := 2 * $b - 5;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and last StartDay() within 1 days from TemperatureReading and not RainReading( [string] area == $a ) within 1 hours from TemperatureReading where area := $a, temperature := AVG( TemperatureReading.temperature() ) between Start and TemperatureReading;
+assign 1 => Fire, 2 => TemperatureReading, 3 => RainReading define Fire( area: string, temperature: int ) from TemperatureReading( area => $a, temperature => $b, temperature > 50 ) and last StartDay() within 1 days from TemperatureReading and not RainReading( [string] area == $a ) within 1 hours from TemperatureReading where area := $a, temperature := AVG( TemperatureReading.temperature() ) between Start and TemperatureReading consuming TemperatureReading, RainReading;
 

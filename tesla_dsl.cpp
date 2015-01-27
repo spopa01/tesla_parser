@@ -23,6 +23,19 @@ typedef std::string event_name;
 typedef std::string attribute_name;
 typedef std::string parameter_name;
 
+// event_declaration = int_ >> "=>" >> event_name;
+struct event_declaration{
+  int id_;
+  event_name event_name_;
+};
+
+BOOST_FUSION_ADAPT_STRUCT(
+  event_declaration,
+
+  (int, id_)
+  (event_name, event_name_)
+)
+
 // attribute_type = ( "string" | "int" | "float" | "bool" )
 // attribute_declaration = attribute_name >> ':' attribute_type;
 struct attribute_declaration{
@@ -164,10 +177,10 @@ typedef boost::variant<within_reference, between_reference> predicate_reference;
 
 // TRIGGER PATTERN DEFINITION SECTION
 
-// op_type = ( "==", ">", "<", "!=", "&", "|" )     !?
+// op_type = ( "==", ">", ">=", "<", "<=", "!=", "&", "|" )     !?
 // simple_attribute_constraint = ( atrribute_name >> op_type >> static_value );
 struct simple_attribute_constraint{
-  enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
+  enum op_type{ eq_op, gt_op, ge_op, lt_op, le_op, neq_op, and_op, or_op };
 
   attribute_name attribute_name_;
   op_type op_;
@@ -224,10 +237,11 @@ BOOST_FUSION_ADAPT_STRUCT(
 // predicate_parameter = ( parameter_mapping, simple_attribute_constraint | complex_attribute_constraint );
 typedef boost::variant<parameter_mapping, simple_attribute_constraint, complex_attribute_constraint> predicate_parameter;
 
-// predicate = ( event_name >> -( predicate_parameter % ',' ) );
+// predicate = ( event_name >> '(' >> -( predicate_parameter % ',' ) >> ')' >> -alias );
 struct predicate{
   event_name event_name_;
   boost::optional<std::vector<predicate_parameter> > predicate_parameters_;
+  boost::optional<event_name> alias_;
 };
 
 BOOST_FUSION_ADAPT_STRUCT(
@@ -235,6 +249,7 @@ BOOST_FUSION_ADAPT_STRUCT(
 
   (event_name, event_name_)
   (boost::optional<std::vector<predicate_parameter> >, predicate_parameters_)
+  (boost::optional<event_name>, alias_)
 )
 
 // selection_policy = ( "each" | "first" | "last" );
@@ -318,13 +333,15 @@ typedef boost::variant<simple_attribute_definition, complex_attribute_definition
 // RULE DEFINITION SECTION
 
 /*
-rule %=   ( "define" >> event_definition )
+rule %=   ( "assign" >> (event_declaration % ',') )
+     >>   ( "define" >> event_definition )
      >>   ( "from" >> trigger_pattern_definition )
      >> - ( "where" >> ( atrributes_definition % ',' ) )
      >> - ( "consuming" >> ( event_name % ',' ) )
      >> ';';
 */
 struct tesla_rule{
+  std::vector<event_declaration> events_declaration_;
   event_definition event_definition_; 
   trigger_pattern_definition trigger_pattern_;
   boost::optional<std::vector<attribute_definition> > attributes_definition_;
@@ -334,6 +351,7 @@ struct tesla_rule{
 BOOST_FUSION_ADAPT_STRUCT(
   tesla_rule,
 
+  (std::vector<event_declaration>, events_declaration_)
   (event_definition, event_definition_)
   (trigger_pattern_definition, trigger_pattern_)
   (boost::optional<std::vector<attribute_definition> >, attributes_definition_)
@@ -341,6 +359,12 @@ BOOST_FUSION_ADAPT_STRUCT(
 )
 
 //-- I should really use (boost::spirit::)karma...........
+
+//0
+
+std::ostream& operator<<(std::ostream& os, event_declaration const& dclr){
+  return os << dclr.id_ << " => " << dclr.event_name_;
+}
 
 //1
 
@@ -432,7 +456,9 @@ std::ostream& operator<<(std::ostream& os, simple_attribute_constraint::op_type 
   switch( op ){
     case simple_attribute_constraint::eq_op: os << " == "; break;
     case simple_attribute_constraint::gt_op: os << " > "; break;
+    case simple_attribute_constraint::ge_op: os << " >= "; break;
     case simple_attribute_constraint::lt_op: os << " < "; break;
+    case simple_attribute_constraint::le_op: os << " <= "; break;
     case simple_attribute_constraint::neq_op: os << " != "; break;
     case simple_attribute_constraint::and_op: os << " | "; break;
     case simple_attribute_constraint::or_op: os << " & "; break;
@@ -457,7 +483,10 @@ std::ostream& operator<<(std::ostream& os, predicate const& pred){
       os << (i==0? " " : "") << predicate_parameters[i] << (i < predicate_parameters.size()-1 ? ", " : " ");
     }
   }
-  return os << ")";
+  os << ")";
+  if( pred.alias_ )
+    os << " as " << *(pred.alias_);
+  return os;
 }
 
 std::ostream& operator<<(std::ostream& os, within_reference::delta_type const& type){
@@ -521,7 +550,11 @@ std::ostream& operator<<(std::ostream& os, complex_attribute_definition const& d
 // Rule:
 
 std::ostream& operator<<(std::ostream& os, tesla_rule const& rule){
-  os  << "define " << rule.event_definition_
+  os  << "assign ";
+  for( int i=0; i < rule.events_declaration_.size(); ++i )
+    os << rule.events_declaration_[i] << (i < rule.events_declaration_.size()-1 ? ", " : "");
+
+  os  << " define " << rule.event_definition_
       << " from " << rule.trigger_pattern_;
   
   if( rule.attributes_definition_ ){
@@ -546,7 +579,7 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
   tesla_grammar() : tesla_grammar::base_type(tesla_rule_){
     using namespace qi;
 
-    //-- 1
+    //-- 0 & 1
 
     strlit_ =  ('"' >> *~char_('"') >> '"');
 
@@ -555,6 +588,9 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     parameter_name_ = (char_('$') >> attribute_name_);
 
     static_value_ = ( strlit_ | int_ | float_ | bool_ );
+
+    event_declaration_ = int_ >> "=>" >> event_name_;
+    events_declaration_ = (event_declaration_ % ',');
 
     type_token_.add
       ("string", attribute_declaration::string_type)
@@ -607,7 +643,9 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     constr_op_type_token_.add
       ("==", simple_attribute_constraint::eq_op)
       (">", simple_attribute_constraint::gt_op)
+      (">=", simple_attribute_constraint::ge_op)
       ("<", simple_attribute_constraint::lt_op)
+      ("<=", simple_attribute_constraint::le_op)
       ("!=", simple_attribute_constraint::neq_op)
       ("&", simple_attribute_constraint::and_op)
       ("|", simple_attribute_constraint::or_op);
@@ -626,7 +664,7 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     aggregate_atom_ = (agg_type_ >> '(' >> attribute_reference_ >> '(' >> -( attribute_constraint_ % ',' )  >> ')'  >> ')' >> predicate_reference_ );
 
     predicate_parameter_ = (parameter_mapping_ | simple_attribute_constraint_ | complex_attribute_constraint_);
-    predicate_ = event_name_ >> '(' >> -(predicate_parameter_ % ',') >> ')';
+    predicate_ = event_name_ >> '(' >> -(predicate_parameter_ % ',') >> ')' >> -(lexeme["as"] >> event_name_);
 
     selection_policy_token_.add
       ("each", positive_predicate::each_policy)
@@ -654,10 +692,11 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 
     //-- Rule
 
-    tesla_rule_ %=    lexeme ["define"]   >> event_definition_
-                >>    lexeme ["from"]     >> trigger_pattern_definition_
+    tesla_rule_ %=    lexeme["assign"]    >> events_declaration_
+                >>    lexeme["define"]    >> event_definition_
+                >>    lexeme["from"]      >> trigger_pattern_definition_
                 >> -( lexeme["where"]     >> attributes_definition_ )
-                >> -( lexeme["consuming"] >> events_to_consume_  )
+                >> -( lexeme["consuming"] >> events_to_consume_ )
                 >> ';';
   }
 
@@ -667,6 +706,9 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
 
   qi::rule<It, std::string()> strlit_;
   qi::rule<It, static_value()> static_value_;
+
+  qi::rule<It, event_declaration(), ascii::space_type> event_declaration_;
+  qi::rule<It, std::vector<event_declaration>(), ascii::space_type> events_declaration_;
 
   qi::symbols<char, attribute_declaration::attribute_type> type_token_;
   qi::rule<It, attribute_declaration::attribute_type()> attribute_type_;
