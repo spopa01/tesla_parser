@@ -129,9 +129,12 @@ BOOST_FUSION_ADAPT_STRUCT(
   (std::vector<term>, rest_)
 )
 
-// within_reference = ( "within" >> uint_ >> "from" >> event_name )
+// within_reference = ( "within" >> uint_ >> delta_type >> "from" >> event_name )
 struct within_reference{
+  enum delta_type{ millisecs, secs, mins, hours, days };
+
   unsigned int delta_;
+  delta_type delta_type_;
   event_name event_name_;
 };
 
@@ -139,6 +142,7 @@ BOOST_FUSION_ADAPT_STRUCT(
   within_reference,
 
   (unsigned int, delta_)
+  (within_reference::delta_type, delta_type_)
   (event_name, event_name_)
 )
 
@@ -166,7 +170,7 @@ struct simple_attribute_constraint{
   enum op_type{ eq_op, gt_op, lt_op, neq_op, and_op, or_op };
 
   attribute_name attribute_name_;
-  op_type op_type_;
+  op_type op_;
   static_value static_value_;
 };
 
@@ -174,7 +178,7 @@ BOOST_FUSION_ADAPT_STRUCT(
   simple_attribute_constraint,
 
   (attribute_name, attribute_name_)
-  (simple_attribute_constraint::op_type, op_type_)
+  (simple_attribute_constraint::op_type, op_)
   (static_value, static_value_)
 )
 
@@ -182,7 +186,7 @@ BOOST_FUSION_ADAPT_STRUCT(
 struct complex_attribute_constraint{
   attribute_declaration::attribute_type attribute_type_;
   attribute_name attribute_name_;
-  simple_attribute_constraint::op_type op_type_;
+  simple_attribute_constraint::op_type op_;
   expression expression_;
 };
 
@@ -191,7 +195,7 @@ BOOST_FUSION_ADAPT_STRUCT(
 
   (attribute_declaration::attribute_type, attribute_type_)
   (attribute_name, attribute_name_)
-  (simple_attribute_constraint::op_type, op_type_)
+  (simple_attribute_constraint::op_type, op_)
   (expression, expression_)
 )
 
@@ -366,6 +370,60 @@ std::ostream& operator<<(std::ostream& os, event_definition const& def){
 
 //2
 
+std::ostream& operator<<(std::ostream& os, attribute_reference const& ref);
+std::ostream& operator<<(std::ostream& os, simple_attribute_constraint const& cnstr);
+std::ostream& operator<<(std::ostream& os, complex_attribute_constraint const& cnstr);
+
+std::ostream& operator<<(std::ostream& os, aggregate_atom::aggregation_type const& type){
+  switch( type ){
+    case aggregate_atom::avg_agg: os << "AVG"; break;
+    case aggregate_atom::sum_agg: os << "SUM"; break;
+    case aggregate_atom::min_agg: os << "MIN"; break;
+    case aggregate_atom::max_agg: os << "MAX"; break;
+    case aggregate_atom::count_agg: os << "COUNT"; break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, aggregate_atom const& agg){
+  os << agg.aggregation_type_ << "( " << agg.attribute_reference_ << "(";
+  if( agg.attribute_constraints_ ){
+    std::vector<attribute_constraint> attribute_constraints = *(agg.attribute_constraints_);
+    for( int i=0; i < attribute_constraints.size(); ++i )
+      os << (i==0 ? " " : "") << attribute_constraints[i] << (i < attribute_constraints.size()-1 ? ", " : " ");
+  }
+  return os << ") )" << agg.reference_;
+}
+
+std::ostream& operator<<(std::ostream& os, attribute_reference const& ref){
+  return os << ref.event_name_ << "." << ref.attribute_name_;
+}
+
+std::ostream& operator<<(std::ostream& os, factor const& fct){
+  return os << ( fct.sign_ == factor::neg_sgn ? "-" : "" ) << fct.atom_;
+}
+
+std::ostream& operator<<(std::ostream& os, term::op_type const& op){
+  switch( op ){
+    case term::mul_op: os << " * "; break;
+    case term::div_op: os << " / "; break;
+    case term::add_op: os << " + "; break;
+    case term::sub_op: os << " - "; break;
+  }
+  return os;
+}
+
+std::ostream& operator<<(std::ostream& os, term const& trm){
+  return os << trm.op_ << trm.atom_;
+}
+
+std::ostream& operator<<(std::ostream& os, expression const& expr){
+  os << expr.first_;
+  for( int i=0; i<expr.rest_.size(); ++i )
+    os << expr.rest_[i];
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, parameter_mapping const& mp){
   return os << mp.attribute_name_ << " => " << mp.parameter_name_;
 }
@@ -383,21 +441,11 @@ std::ostream& operator<<(std::ostream& os, simple_attribute_constraint::op_type 
 }
 
 std::ostream& operator<<(std::ostream& os, simple_attribute_constraint const& cnstr){
-  return os << cnstr.attribute_name_ << cnstr.op_type_ << cnstr.static_value_;
-}
-
-std::ostream& operator<<(std::ostream& os, expression const& expr){
-  return os << "expr";
-  /*
-  os << expr.first_;
-  for( int i=0; i<expr.rest_.size(); ++i )
-    os << 
-  return os;
-  */
+  return os << cnstr.attribute_name_ << cnstr.op_ << cnstr.static_value_;
 }
 
 std::ostream& operator<<(std::ostream& os, complex_attribute_constraint const& cnstr){
-  os << "[" << cnstr.attribute_type_ << "] " << cnstr.attribute_name_ << cnstr.op_type_ << cnstr.expression_;
+  os << "[" << cnstr.attribute_type_ << "] " << cnstr.attribute_name_ << cnstr.op_ << cnstr.expression_;
   return os;
 }
 
@@ -412,8 +460,19 @@ std::ostream& operator<<(std::ostream& os, predicate const& pred){
   return os << ")";
 }
 
+std::ostream& operator<<(std::ostream& os, within_reference::delta_type const& type){
+  switch( type ){
+    case within_reference::millisecs: os << " millisecs"; break;
+    case within_reference::secs: os << " secs"; break;
+    case within_reference::mins: os << " mins"; break;
+    case within_reference::hours: os << " hours"; break;
+    case within_reference::days: os << " days"; break;
+  }
+  return os;
+}
+
 std::ostream& operator<<(std::ostream& os, within_reference const& ref){
-  return os << " within " << ref.delta_ << " from " << ref.event_name_;
+  return os << " within " << ref.delta_ << ref.delta_type_ << " from " << ref.event_name_;
 }
 
 std::ostream& operator<<(std::ostream& os, between_reference const& ref){
@@ -468,13 +527,13 @@ std::ostream& operator<<(std::ostream& os, tesla_rule const& rule){
   if( rule.attributes_definition_ ){
     std::vector< attribute_definition > attributes_definition = *(rule.attributes_definition_);
     for( int i=0; i < attributes_definition.size(); ++i )
-      os << (i==0 ? " where " : "") << attributes_definition[i] << (i < attributes_definition.size()-1 ? " " : "");
+      os << (i==0 ? " where " : "") << attributes_definition[i] << (i < attributes_definition.size()-1 ? ", " : "");
   }
 
   if( rule.events_to_consume_ ){
     std::vector<event_name> events_to_consume = *(rule.events_to_consume_);
     for( int i=0; i < events_to_consume.size(); ++i )
-      os << (i==0 ? " consuming " : "") << events_to_consume[i] << (i < events_to_consume.size()-1 ? " " : "");
+      os << (i==0 ? " consuming " : "") << events_to_consume[i] << (i < events_to_consume.size()-1 ? ", " : "");
   }
 
   return os << ";";
@@ -532,8 +591,15 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
     expression_ = term_ >> *( term_add_sub_op_type_ >> term_ );
     term_ = factor_ >> *( term_mul_div_op_type_ >> factor_ );
     factor_ = parameter_atom_ | aggregate_atom_ | '(' >> expression_ >> ')' | (factor_sign_ >> factor_);
-    
-    within_reference_ = lexeme["within"] >> uint_ >> lexeme["from"] >> event_name_;
+ 
+    delta_type_token_.add
+      ("millisecs", within_reference::millisecs)
+      ("secs", within_reference::secs)
+      ("mins", within_reference::mins)
+      ("hours", within_reference::hours)
+      ("days", within_reference::days);
+    delta_type_ = delta_type_token_;
+    within_reference_ = lexeme["within"] >> uint_ >> delta_type_ >> lexeme["from"] >> event_name_;
     between_reference_ = lexeme["between"] >> event_name_ >> lexeme["and"] >> event_name_;
 
     predicate_reference_ = ( within_reference_ | between_reference_ );
@@ -634,6 +700,8 @@ struct tesla_grammar : qi::grammar<It, tesla_rule(), ascii::space_type>{
   qi::rule<It, aggregate_atom::aggregation_type()> agg_type_;
   qi::rule<It, aggregate_atom(), ascii::space_type> aggregate_atom_;
 
+  qi::symbols<char, within_reference::delta_type> delta_type_token_;
+  qi::rule<It, within_reference::delta_type() > delta_type_;
   qi::rule<It, within_reference(), ascii::space_type> within_reference_;
   qi::rule<It, between_reference(), ascii::space_type> between_reference_;
   qi::rule<It, predicate_reference(), ascii::space_type> predicate_reference_;
